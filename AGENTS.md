@@ -18,8 +18,13 @@ These rules override everything else in this file when in conflict:
 
 - The agent MUST verify that the codebase is a Git repository before modifying it. If it is not, the agent MUST refuse to modify the codebase and explain that Git is required.
 - The agent MUST create a new branch for each task and perform all work for that task on that branch. It MUST NOT work directly on the primary branch.
+- Prior to starting a task on the branch, the agent should determine if a rebase is necessary from the original parent branch.
 - Changes MUST be submitted through a pull request (PR) or merge request (MR) and receive human review before merging.
 - The agent MUST NOT directly merge changes. Passing automated checks does not replace human review.
+- Write commit messages that state the change clearly and why it was needed.
+- Keep PRs small and scoped to one concern.
+- The agent MUST NOT push to main, master, or develop. The agent is only authorized to push its own scoped feature branch.
+- The agent MUST NOT use `--no-verify` or `--no-gpg-sign`. If a hook or signature check blocks a commit, fix the reported cause or report the blocker.
 
 ## Boundaries
 
@@ -48,6 +53,19 @@ These rules override everything else in this file when in conflict:
 4. If during testing there are any performance issues encountered, discover the root cause of the issue, explain it, and offer suggestions for resolving any bottlenecks. 
 5. Optimize any solutions only after delivering a working solution with passing test cases.
 
+## Evidence
+
+Gather evidence proportional to risk.
+
+- Trivial low-risk edit: inspect the target file and adjacent context.
+- Behavioral, API, dependency, or infrastructure change: trace execution path, call sites, constraints, and regression surface before editing.
+- Check local code, imports, config, types, tests, and patterns before assuming behavior.
+- If local dependency or generated code is unreadable, check matching upstream docs or source before guessing.
+- Prefer executable or independent verification over self-review. A fresh test beats re-reading your own code.
+- State uncertainty when something cannot be confirmed.
+
+Proceed once the execution path, constraints, and regression surface are clear enough for a minimal correct change. If not, ask or report the gap.
+
 ## Development Workflow
 
 Feature development MUST follow this test-driven development (TDD) sequence:
@@ -60,7 +78,41 @@ Feature development MUST follow this test-driven development (TDD) sequence:
 6. **Verify** — Run the full applicable test suite and the formatter, linter, type checker, and configured static-analysis checks described under Verification and CI/CD before considering the work complete.
 7. **Commit** - Commit the changes to the feature branch and push it for review.
 
-### Core Principles
+### Development Guidelines
+
+1. Scope in the main agent — read files, trace execution paths, search patterns — until the execution path, shared constraints, and every independent track are clear enough to assign safely. A track is work that owns a distinct useful deliverable. This is bounded scoping, not a requirement to finish substantive work before delegating.
+2. Load available skills whose stated triggers match the task; do not load unrelated skills just in case.
+3. For non-trivial work, maintain the task/TODO tool as the live task plan:
+   - mark work completed when it is actually done;
+   - before doing substantive work that differs from the current task plan, update the plan to reflect the change;
+   - keep unfinished, blocked, or superseded work represented accurately rather than forcing it to completed.
+4. Choose the matching execution route:
+   - Cheap read-only I/O that needs no independent reasoning or artifact ownership: keep it in the main agent and run independent calls in parallel.
+   - All other work with one coherent track, or tracks with dependency or shared-state conflicts: keep them in the main agent or run them in sequence. Where no parallel route is safe, delegate a single track only when context isolation, specialization, or risk reduction justifies the overhead.
+   - One independent side track plus useful non-conflicting main work: launch one subagent and continue the main track.
+   - Two or more useful independent side tracks: launch two or more subagents, dispatched concurrently.
+5. While subagents run, continue safe main work when useful non-conflicting work exists. Otherwise wait for the required result. Do not duplicate assigned work or create work solely to avoid idling.
+6. Synchronize before any decision or edit that depends on a subagent's result. Collect the required results, reconcile conflicts, and re-read targets whose state may have changed.
+7. Implement the smallest correct change.
+8. Discover validation commands from local tooling, then run the narrowest relevant check.
+
+Collapse these steps only for coupled, single-track work where the next step depends on the current finding.
+
+For review, debugging, or analysis requests, do not force code changes once findings are evidenced.
+
+### Subagents
+
+Use subagents to create real concurrency or to isolate work. Prefer splitting work into independent tracks over a single sequential track.
+
+The main agent remains an active builder. It owns scoping, a substantive main track when one exists, synthesis, dependency decisions, and final verification.
+
+- Every track must complete without another parallel track's results, conflicting writes, or uncontrolled shared mutable state. Do not split work solely to reach a count.
+- Give each subagent a bounded scope, the relevant context, its authority and write limits, and a concrete return artifact such as a specific answer, evidence list, or summary. Avoid open prompts such as "report findings" or "explore the codebase."
+- Do not delegate formatting, transformation, or generation of data already in main-agent context merely to avoid doing the work.
+- Treat a subagent's result as a claim: revalidate it against current state and never assume success. Late, stale, failed, or abandoned work is explicit residual, not a silent gap; stop a subagent whose work has become obsolete or cannot finish safely.
+
+
+## Core Principles
 
 1. Understand the problem or question you are being asked to solve before attempting to solve or answer.
    - Do not make assumptions.
@@ -79,11 +131,13 @@ Feature development MUST follow this test-driven development (TDD) sequence:
 3. Keep changes simple, clear, and appropriately scoped.
    - **Minimum code that solves the problem. Nothing speculative.**
    - No features beyond what was asked.
+   - Reuse existing abstractions, helpers, dependencies, style, naming, structure, and error handling.
    - No abstractions for single-use code.
    - No "flexibility" or "configurability" that wasn't requested.
    - No error handling for impossible scenarios.
    - If you write 200 lines and it could be 50, rewrite it.
    - No code duplication.
+   - Add dependencies only when necessary. Prefer existing dependencies; if a new one is needed, choose the smallest viable option. If more than one viable option exists, provide an overview to the user of each option and let them choose.
    - **The test:** Would a senior engineer say this is overcomplicated? If yes, simplify.
 
 ## Architecture and Layer Boundaries
@@ -142,6 +196,7 @@ Documentation MUST stay consistent with the behavior changed by the task.
 
 ## Testing
 
+- Preserve existing tests. Update tests when behavior changes. Do not silently change tested behavior.
 - Unit tests MUST cover essentially all functionality. Both line coverage and branch coverage MUST be at least **80%**; these are minimum thresholds, not substitutes for meaningful behavioral coverage.
 - Public APIs and externally exposed interfaces MUST have contract tests verifying their externally visible behavior and structure, including applicable field names, types, and error formats.
 - Tests MUST make meaningful assertions about expected values and behavior. Assertions that merely establish execution or a non-null result MUST NOT substitute for checking the intended outcome.
